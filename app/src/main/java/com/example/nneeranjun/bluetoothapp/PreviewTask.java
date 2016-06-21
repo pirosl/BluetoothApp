@@ -11,6 +11,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -24,11 +25,13 @@ import android.os.Message;
 import android.preference.PreferenceManager;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.io.File;
@@ -43,13 +46,14 @@ import java.text.SimpleDateFormat;
 import java.util.Set;
 import java.util.UUID;
 
-public class UserCameraPreview extends AppCompatActivity implements SurfaceHolder.Callback {
-    Camera camera;
+public class PreviewTask extends AppCompatActivity{
+    private static final String TAG = "BluetoothApplication";
+    CameraPreview mPreview;
+
     SurfaceView surfaceView;
     Button takePicture;
     SurfaceHolder surfaceHolder;
-    Camera.PictureCallback pictureCallback;
-    Camera.ShutterCallback shutterCallback;
+
     BluetoothAdapter mBluetoothAdapter;
     Set<BluetoothDevice> pairedDevices;
     ArrayAdapter<String> mArrayAdapter;
@@ -71,11 +75,7 @@ public class UserCameraPreview extends AppCompatActivity implements SurfaceHolde
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_user_camera_preview);
-        surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
         takePicture = (Button) findViewById(R.id.takePictureUser);
-        surfaceHolder = surfaceView.getHolder();
-        surfaceHolder.addCallback(this);
-        surfaceHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
         mArrayAdapter = new ArrayAdapter<String>(getApplicationContext(), android.R.layout.simple_list_item_1);
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
@@ -101,14 +101,33 @@ public class UserCameraPreview extends AppCompatActivity implements SurfaceHolde
                     Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
             discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
             startActivityForResult(discoverableIntent, DISCOVERABLE);
-            camera.setPreviewCallback(new Camera.PreviewCallback() {
+
+            //start camera
+            if (this.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA)){
+                // this device has a camera
+                try {
+                    Camera camera = Camera.open();
+
+                    // Create our Preview view and set it as the content of our activity.
+                    mPreview = new CameraPreview(this, camera);
+                    FrameLayout preview = (FrameLayout) findViewById(R.id.camera_preview);
+                    preview.addView(mPreview);
+                }
+                catch(Exception e) {
+                    Log.d(TAG, "Error in opening camera: "  + e.getMessage());
+                }
+            } else {
+                // no camera on this device
+                Log.d(TAG, "This device does not have a camera");
+            }
+        /*    camera.setPreviewCallback(new Camera.PreviewCallback() {
                 @Override
                 public void onPreviewFrame(byte[] data, Camera camera) {
                     if(connectedThread!=null){
                         connectedThread.write(data);
                     }
                 }
-            });
+            });*/
         } else {
             pairedDevices = mBluetoothAdapter.getBondedDevices();
             if (pairedDevices.size() != 0) {
@@ -146,21 +165,21 @@ public class UserCameraPreview extends AppCompatActivity implements SurfaceHolde
             });
             devices.create().show();
         }
-        pictureCallback = new Camera.PictureCallback() {
+        /*pictureCallback = new Camera.PictureCallback() {
             @Override
             public void onPictureTaken(byte[] data, Camera camera) {
                 SavePhotoTask save = new SavePhotoTask();
                 save.execute(data);
                 connectedThread.write(data);
             }
-        };
+        };*/
     }
 private File getDirec(){
     File dics = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM);
     return new File(dics,"Picture");
 }
 
-    @Override
+ /*   @Override
     public void surfaceCreated(SurfaceHolder holder) {
         if (user.equals("host")) {
             camera = Camera.open();
@@ -185,54 +204,17 @@ private File getDirec(){
                 paint.setColor(Color.WHITE);
                 canvas.drawText("Not connected yet",0,0, paint);
                 surfaceView.draw(canvas);
-
             }
         }
     }
+*/
 
-
-    @Override
-    public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        if(user.equals("host")) {
-            refreshCamera();
-        }
-        else {
-            return;
-        }
-    }
-
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        if(user.equals("host")) {
-            camera.stopPreview();
-            camera.release();
-            camera = null;
-        }
-    }
-    private void refreshCamera(){
-        if(surfaceHolder.getSurface()!=null){
-
-            return;
-        }
-        try{
-            camera.stopPreview();
-        } catch (Exception e){
-            e.printStackTrace();
-        }
-
-        try{
-            camera.setPreviewDisplay(surfaceHolder);
-            camera.startPreview();
-        }catch (Exception e){
-            e.printStackTrace();
-        }
-    }
     private final Handler mHandler = new Handler(){
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what){
                 case TAKE_PICTURE:
-                    camera.takePicture(null,null,pictureCallback);
+     //               camera.takePicture(null,null,pictureCallback);
                     break;
                 case SEND_FRAME:
                     acceptTempBytes = (byte[]) msg.obj;
@@ -252,7 +234,7 @@ private File getDirec(){
         }
     };
     public void takePhoto(){
-        camera.takePicture(null,null,pictureCallback);
+     //   camera.takePicture(null,null,pictureCallback);
     }
 
     public void takePicture(View view){
@@ -452,6 +434,4 @@ private File getDirec(){
 
         }
     }
-
 }
-
