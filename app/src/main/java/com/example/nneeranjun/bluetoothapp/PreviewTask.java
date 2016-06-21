@@ -63,6 +63,9 @@ public class PreviewTask extends AppCompatActivity{
     ConnectedThread connectedThread;
     BluetoothDevice selectedDevice;
 
+    private ProgressDialog mProgressDlg;
+    private Context mContext;
+
     String user;
     byte[] acceptTempBytes;
     int purpose;
@@ -112,6 +115,15 @@ public class PreviewTask extends AppCompatActivity{
                     mPreview = new CameraPreview(this, camera);
                     FrameLayout preview = (FrameLayout) findViewById(R.id.camera_preview);
                     preview.addView(mPreview);
+
+                    camera.setPreviewCallback(new Camera.PreviewCallback() {
+                        @Override
+                        public void onPreviewFrame(byte[] data, Camera camera) {
+                            if(connectedThread!=null){
+                                connectedThread.write(data);
+                            }
+                        }
+                    });
                 }
                 catch(Exception e) {
                     Log.d(TAG, "Error in opening camera: "  + e.getMessage());
@@ -120,50 +132,37 @@ public class PreviewTask extends AppCompatActivity{
                 // no camera on this device
                 Log.d(TAG, "This device does not have a camera");
             }
-        /*    camera.setPreviewCallback(new Camera.PreviewCallback() {
-                @Override
-                public void onPreviewFrame(byte[] data, Camera camera) {
-                    if(connectedThread!=null){
-                        connectedThread.write(data);
-                    }
-                }
-            });*/
-        } else {
+            } else {
             pairedDevices = mBluetoothAdapter.getBondedDevices();
             if (pairedDevices.size() != 0) {
                 for (BluetoothDevice device : pairedDevices) {
                     mArrayAdapter.add(device.getName() + "\n" + device.getAddress());
                 }
             }
-            // Create a BroadcastReceiver for ACTION_FOUND
-            final BroadcastReceiver mReceiver = new BroadcastReceiver() {
-                public void onReceive(Context context, Intent intent) {
-                    String action = intent.getAction();
-                    // When discovery finds a device
-                    if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-                        // Get the BluetoothDevice object from the Intent
-                        BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                        // Add the name and address to an array adapter to show in a ListView
-                        mArrayAdapter.add(device.getName().toString() + "\n" + device.getAddress().toString());
-                    }
-                }
-            };
 
-// Register the BroadcastReceiver
-            IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-            registerReceiver(mReceiver, filter); // Don't forget to unregister during onDestroy
+            mProgressDlg 		= new ProgressDialog(this);
 
-            final AlertDialog.Builder devices = new AlertDialog.Builder(getApplicationContext());
-            devices.setTitle("Select Device");
-
-            devices.setAdapter(mArrayAdapter, new DialogInterface.OnClickListener() {
+            mProgressDlg.setMessage("Scanning...");
+            mProgressDlg.setCancelable(false);
+            mProgressDlg.setButton(DialogInterface.BUTTON_NEGATIVE, "Cancel", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int which) {
-                    selectedDevice = (BluetoothDevice) pairedDevices.toArray()[which];
-                    connectThread = new ConnectThread(selectedDevice);
+                    dialog.dismiss();
+
+                    mBluetoothAdapter.cancelDiscovery();
                 }
             });
-            devices.create().show();
+
+
+// Register the BroadcastReceiver
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+            filter.addAction(BluetoothDevice.ACTION_FOUND);
+            filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
+            filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+            registerReceiver(mReceiver, filter); // Don't forget to unregister during onDestroy
+            mContext = this;
+            mBluetoothAdapter.startDiscovery();
         }
         /*pictureCallback = new Camera.PictureCallback() {
             @Override
@@ -174,7 +173,43 @@ public class PreviewTask extends AppCompatActivity{
             }
         };*/
     }
-private File getDirec(){
+
+    // Create a BroadcastReceiver for Bluetooth actions like ACTION_FOUND
+    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+
+            if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
+                final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+
+                if (state == BluetoothAdapter.STATE_ON) {
+                    Log.d(TAG, "Bluetooth enabled");
+                }
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_STARTED.equals(action)) {
+                mProgressDlg.show();
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                mProgressDlg.dismiss();
+
+                AlertDialog.Builder devices = new AlertDialog.Builder(mContext);
+                devices.setTitle("Select Device");
+
+                devices.setAdapter(mArrayAdapter, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        selectedDevice = (BluetoothDevice) pairedDevices.toArray()[which];
+                        connectThread = new ConnectThread(selectedDevice);
+                    }
+                });
+                devices.create().show();
+            } else if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                // Add the name and address to an array adapter to show in a ListView
+                mArrayAdapter.add(device.getName().toString() + "\n" + device.getAddress().toString());
+            }
+        }
+    };
+
+    private File getDirec(){
     File dics = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM);
     return new File(dics,"Picture");
 }
@@ -226,7 +261,6 @@ private File getDirec(){
                 case SEND_PICTURE:
                    SavePhotoTask save = new SavePhotoTask();
                     save.execute((byte[])msg.obj);
-
             }
 
 
